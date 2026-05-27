@@ -148,8 +148,9 @@
 // ================================================================
 //  CONFIGURATION
 // ================================================================
-const HOLDING_VIDEO_ID = "1019710515"; // Vimeo ID
-const RETURN_DELAY     = 2; // seconds after demo ends before returning
+const HOLDING_VIDEO_ID   = "1019710515";  // Vimeo video ID
+const HOLDING_VIDEO_HASH = "c2b4244e58"; // unlisted hash (the part after the ID in the URL)
+const RETURN_DELAY       = 2; // seconds after demo ends before returning
 
 // ================================================================
 //  ACR122U — WebUSB DRIVER
@@ -263,11 +264,12 @@ const ACR122U = {
 // ================================================================
 //  VIMEO PLAYER
 // ================================================================
-function vimeoSrc(id, opts={}) {
+function vimeoSrc(id, opts={}, hash=null) {
   const p = new URLSearchParams({
     autoplay:1, loop:0, title:0, byline:0,
     portrait:0, controls:0, muted:0, ...opts
   });
+  if (hash) p.set("h", hash);
   return `https://player.vimeo.com/video/${id}?${p}`;
 }
 
@@ -282,7 +284,7 @@ const demoLayer     = document.getElementById("demo-layer");
 const prompt        = document.getElementById("prompt");
 const flash         = document.getElementById("flash");
 
-holdingIframe.src = vimeoSrc(HOLDING_VIDEO_ID, { loop:1 });
+holdingIframe.src = vimeoSrc(HOLDING_VIDEO_ID, { loop:1 }, HOLDING_VIDEO_HASH);
 
 let returnTimer=null, isDemoPlaying=false;
 
