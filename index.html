@@ -67,11 +67,11 @@
 <body>
 
 <div class="video-layer" id="holding-layer">
-  <iframe id="holding-iframe" src="" allow="autoplay; fullscreen" allowfullscreen></iframe>
+  <iframe id="holding-iframe" src="" allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media" allowfullscreen></iframe>
 </div>
 
 <div class="video-layer" id="demo-layer">
-  <iframe id="demo-iframe" src="" allow="autoplay; fullscreen" allowfullscreen></iframe>
+  <iframe id="demo-iframe" src="" allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media" allowfullscreen></iframe>
 </div>
 
 <div id="prompt">
@@ -131,7 +131,7 @@ const statusDot     = document.getElementById("status-dot");
 const statusText    = document.getElementById("status-text");
 
 // Load holding video immediately
-holdingIframe.src = vimeoSrc(HOLDING_VIDEO_ID, { loop:1 }, HOLDING_VIDEO_HASH);
+holdingIframe.src = `https://player.vimeo.com/video/${HOLDING_VIDEO_ID}?h=${HOLDING_VIDEO_HASH}&badge=0&autopause=0&player_id=0&app_id=58479&autoplay=1&loop=1&title=0&byline=0&portrait=0`;
 
 let returnTimer = null;
 let isDemoPlaying = false;
@@ -149,7 +149,7 @@ function playDemo(url) {
   setTimeout(() => flash.classList.remove("active"), 300);
 
   prompt.classList.add("hidden");
-  demoIframe.src = vimeoSrc(id, { autoplay:1 }, hash);
+  demoIframe.src = `https://player.vimeo.com/video/${id}?${hash ? "h="+hash+"&" : ""}badge=0&autopause=0&player_id=0&app_id=58479&autoplay=1&title=0&byline=0&portrait=0`;
   demoLayer.style.opacity = "1";
   demoLayer.style.pointerEvents = "auto";
   console.log("Playing:", id);
