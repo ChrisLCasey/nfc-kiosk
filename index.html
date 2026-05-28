@@ -23,45 +23,6 @@
   #holding-layer { z-index:1; opacity:1; }
   #demo-layer    { z-index:2; opacity:0; pointer-events:none; }
 
-  /* SETUP SCREEN */
-  #setup-screen {
-    position: fixed; inset: 0; z-index: 100;
-    background: #0a0a0a;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 32px;
-    transition: opacity 600ms ease;
-  }
-  #setup-screen.hidden { opacity:0; pointer-events:none; }
-  .setup-logo {
-    width:64px; height:64px;
-    border: 2px solid rgba(255,255,255,0.2);
-    border-radius: 16px;
-    display:flex; align-items:center; justify-content:center;
-  }
-  .setup-logo svg { width:36px; height:36px; }
-  #setup-screen h1 {
-    font-size:22px; font-weight:300;
-    letter-spacing:0.12em; text-transform:uppercase; color:#fff;
-  }
-  #setup-screen p {
-    font-size:14px; color:rgba(255,255,255,0.45);
-    text-align:center; max-width:360px; line-height:1.7;
-  }
-  #connect-btn {
-    background:#fff; color:#000; border:none;
-    border-radius:50px; padding:16px 40px;
-    font-size:14px; font-weight:500;
-    letter-spacing:0.08em; text-transform:uppercase;
-    cursor:pointer; transition: opacity 200ms, transform 200ms;
-  }
-  #connect-btn:hover  { opacity:0.85; transform:scale(1.02); }
-  #connect-btn:active { transform:scale(0.98); }
-  #connect-btn:disabled { opacity:0.4; cursor:default; transform:none; }
-  #setup-error {
-    font-size:13px; color:#f87171;
-    text-align:center; max-width:340px; line-height:1.6; display:none;
-  }
-
   /* TAP PROMPT */
   #prompt {
     position:fixed; bottom:48px; left:50%;
@@ -88,7 +49,7 @@
   }
   #flash.active { opacity:1; }
 
-  /* STATUS */
+  /* STATUS DOT */
   #status {
     position:fixed; top:16px; right:20px; z-index:30;
     font-size:11px; letter-spacing:0.06em; text-transform:uppercase;
@@ -104,21 +65,6 @@
 </style>
 </head>
 <body>
-
-<div id="setup-screen">
-  <div class="setup-logo">
-    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke-opacity="0.3"/>
-      <path d="M7 12c0-2.76 2.24-5 5-5s5 2.24 5 5-2.24 5-5 5"/>
-      <path d="M9.5 12c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5"/>
-      <circle cx="12" cy="12" r="1" fill="white"/>
-    </svg>
-  </div>
-  <h1>NFC Demo Kiosk</h1>
-  <p>Connect the NFC reader to get started.<br>You'll only need to do this once.</p>
-  <button id="connect-btn">Connect NFC Reader</button>
-  <p id="setup-error"></p>
-</div>
 
 <div class="video-layer" id="holding-layer">
   <iframe id="holding-iframe" src="" allow="autoplay; fullscreen" allowfullscreen></iframe>
@@ -141,125 +87,17 @@
 
 <div id="status">
   <div id="status-dot"></div>
-  <span id="status-text">Not connected</span>
+  <span id="status-text">Connecting to reader…</span>
 </div>
 
 <script>
 // ================================================================
-//  CONFIGURATION
+//  CONFIGURATION — only edit these two lines
 // ================================================================
-const HOLDING_VIDEO_ID   = "1019710515";  // Vimeo video ID
-const HOLDING_VIDEO_HASH = "c2b4244e58"; // unlisted hash (the part after the ID in the URL)
-const RETURN_DELAY       = 2; // seconds after demo ends before returning
-
-// ================================================================
-//  ACR122U — WebUSB DRIVER
-//  Talks directly to the reader via USB from the browser.
-//  No Python, no drivers, no installs needed.
-// ================================================================
-const ACR122U = {
-  VENDOR_ID:  0x072F,
-  PRODUCT_ID: 0x2200,
-  device:      null,
-  pollTimer:   null,
-  onTag:       null,
-  lastUrl:     null,
-
-  async connect(device) {
-    this.device = device;
-    await this.device.open();
-    if (this.device.configuration === null) await this.device.selectConfiguration(1);
-    await this.device.claimInterface(0);
-    console.log("ACR122U connected");
-    this.startPolling();
-  },
-
-  startPolling() {
-    this.pollTimer = setInterval(() => this.poll(), 600);
-  },
-
-  stopPolling() {
-    clearInterval(this.pollTimer);
-  },
-
-  async sendAPDU(apdu) {
-    if (!this.device) return null;
-    try {
-      const header = new Uint8Array([0x6F, apdu.length, 0, 0, 0, 0x00, 0x00, 0x00, 0x00, 0x00]);
-      const cmd = new Uint8Array(header.length + apdu.length);
-      cmd.set(header); cmd.set(apdu, header.length);
-      await this.device.transferOut(2, cmd);
-      const res = await this.device.transferIn(2, 265);
-      return res.data ? new Uint8Array(res.data.buffer) : null;
-    } catch(e) {
-      return null;
-    }
-  },
-
-  async poll() {
-    // InListPassiveTarget: find one ISO14443A tag
-    const resp = await this.sendAPDU(
-      new Uint8Array([0xFF, 0x00, 0x00, 0x00, 0x04, 0xD4, 0x4A, 0x01, 0x00])
-    );
-    if (!resp || resp.length < 14) return;
-    const pn532 = resp.slice(10);
-    if (pn532[0] !== 0xD5 || pn532[1] !== 0x4B || pn532[2] === 0) return;
-    // Tag present — read NDEF
-    const url = await this.readNDEF();
-    if (url && url !== this.lastUrl) {
-      this.lastUrl = url;
-      setTimeout(() => { this.lastUrl = null; }, 3000); // debounce
-      if (this.onTag) this.onTag(url);
-    }
-  },
-
-  async readNDEF() {
-    let raw = [];
-    // NTAG215: pages 4–39, read 4 pages at a time
-    for (let page = 4; page < 40; page += 4) {
-      const resp = await this.sendAPDU(
-        new Uint8Array([0xFF, 0x00, 0x00, 0x00, 0x05, 0xD4, 0x40, 0x01, 0x30, page])
-      );
-      if (!resp || resp.length < 17) break;
-      raw.push(...resp.slice(11, 27));
-    }
-    return this.parseNDEF(new Uint8Array(raw));
-  },
-
-  parseNDEF(bytes) {
-    const URI_PREFIXES = [
-      "","http://www.","https://www.","http://","https://",
-      "tel:","mailto:","ftp://anonymous:anonymous@","ftp://ftp.",
-      "ftps://","sftp://","smb://","nfs://","ftp://","dav://","news:",
-      "telnet://","imap:","rtsp://","urn:","pop:","sip:","sips:",
-      "tftp:","btspp://","btl2cap://","btgoep://","tcpobex://",
-      "irdaobex://","file://","urn:epc:id:","urn:epc:tag:",
-      "urn:epc:pat:","urn:epc:raw:","urn:epc:","urn:nfc:"
-    ];
-    let i = 0;
-    while (i < bytes.length) {
-      const tlvType = bytes[i++];
-      if (tlvType === 0xFE || i >= bytes.length) break;
-      if (tlvType === 0x00) continue;
-      const tlvLen = bytes[i++];
-      if (tlvType !== 0x03 || tlvLen === 0) { i += tlvLen; continue; }
-      // NDEF message found
-      const flags   = bytes[i];
-      const typeLen = bytes[i+1];
-      const payLen  = bytes[i+2];
-      // Short record: header = 3 bytes + typeLen
-      const recType = bytes[i+3]; // first byte of type field
-      if (recType === 0x55) { // 'U' = URI
-        const abbrev  = bytes[i+4];
-        const urlPart = bytes.slice(i+5, i+3+typeLen+payLen);
-        const decoded = (URI_PREFIXES[abbrev] || "") + new TextDecoder().decode(urlPart);
-        if (decoded.includes("vimeo.com")) return decoded;
-      }
-      i += 3 + typeLen + payLen;
-    }
-    return null;
-  }
-};
+const HOLDING_VIDEO_ID   = "1019710515";
+const HOLDING_VIDEO_HASH = "c2b4244e58";
+const RETURN_DELAY       = 2; // seconds after demo ends before returning to holding
+const WS_PORT            = 8765; // must match nfc_bridge.py
 
 // ================================================================
 //  VIMEO PLAYER
@@ -278,118 +116,105 @@ function vimeoId(url) {
   return m ? m[1] : null;
 }
 
+function vimeoHash(url) {
+  // Extracts the unlisted hash e.g. c2b4244e58 from https://vimeo.com/123456/c2b4244e58
+  const m = url.match(/vimeo\.com\/\d+\/([a-f0-9]+)/);
+  return m ? m[1] : null;
+}
+
 const holdingIframe = document.getElementById("holding-iframe");
 const demoIframe    = document.getElementById("demo-iframe");
 const demoLayer     = document.getElementById("demo-layer");
 const prompt        = document.getElementById("prompt");
 const flash         = document.getElementById("flash");
+const statusDot     = document.getElementById("status-dot");
+const statusText    = document.getElementById("status-text");
 
+// Load holding video immediately
 holdingIframe.src = vimeoSrc(HOLDING_VIDEO_ID, { loop:1 }, HOLDING_VIDEO_HASH);
 
-let returnTimer=null, isDemoPlaying=false;
+let returnTimer = null;
+let isDemoPlaying = false;
 
 function playDemo(url) {
-  const id = vimeoId(url);
-  if (!id) return;
+  const id   = vimeoId(url);
+  const hash = vimeoHash(url);
+  if (!id) { console.warn("Couldn't extract Vimeo ID from:", url); return; }
+
   clearTimeout(returnTimer);
   isDemoPlaying = true;
+
+  // Flash feedback
   flash.classList.add("active");
-  setTimeout(()=>flash.classList.remove("active"), 300);
+  setTimeout(() => flash.classList.remove("active"), 300);
+
   prompt.classList.add("hidden");
-  demoIframe.src = vimeoSrc(id, { autoplay:1 });
+  demoIframe.src = vimeoSrc(id, { autoplay:1 }, hash);
   demoLayer.style.opacity = "1";
   demoLayer.style.pointerEvents = "auto";
+  console.log("Playing:", id);
 }
 
 function returnToHolding() {
   isDemoPlaying = false;
   demoLayer.style.opacity = "0";
   demoLayer.style.pointerEvents = "none";
-  setTimeout(()=>{ demoIframe.src=""; prompt.classList.remove("hidden"); }, 700);
+  setTimeout(() => {
+    demoIframe.src = "";
+    prompt.classList.remove("hidden");
+  }, 700);
 }
 
+// Vimeo finish event
 window.addEventListener("message", e => {
   if (!e.origin.includes("vimeo.com")) return;
-  let d; try { d=JSON.parse(e.data); } catch { return; }
+  let d; try { d = JSON.parse(e.data); } catch { return; }
   if (d.event === "finish" && isDemoPlaying)
-    returnTimer = setTimeout(returnToHolding, RETURN_DELAY*1000);
+    returnTimer = setTimeout(returnToHolding, RETURN_DELAY * 1000);
   if (d.event === "ready")
     demoIframe.contentWindow?.postMessage(
-      JSON.stringify({method:"addEventListener",value:"finish"}),
+      JSON.stringify({ method: "addEventListener", value: "finish" }),
       "https://player.vimeo.com"
     );
 });
 
 // ================================================================
-//  SETUP UI
+//  WEBSOCKET — receives URLs from nfc_bridge.py
 // ================================================================
-const setupScreen = document.getElementById("setup-screen");
-const connectBtn  = document.getElementById("connect-btn");
-const setupError  = document.getElementById("setup-error");
-const statusDot   = document.getElementById("status-dot");
-const statusText  = document.getElementById("status-text");
-
 function setStatus(cls, label) {
   statusDot.className = cls;
   statusText.textContent = label;
 }
 
-async function initReader(device) {
-  await ACR122U.connect(device);
-  ACR122U.onTag = url => {
-    console.log("NFC URL:", url);
-    playDemo(url);
+function connectWS() {
+  const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+
+  ws.onopen = () => {
+    setStatus("connected", "Reader ready");
+    console.log("Connected to NFC bridge.");
   };
-  setStatus("connected","Reader ready");
-  setupScreen.classList.add("hidden");
+
+  ws.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "play" && msg.url) {
+        console.log("Tag URL:", msg.url);
+        playDemo(msg.url);
+      }
+    } catch(err) {
+      console.error("Bad message:", err);
+    }
+  };
+
+  ws.onclose = () => {
+    setStatus("disconnected", "Reader disconnected — is nfc_bridge.py running?");
+    setTimeout(connectWS, 3000); // retry every 3 seconds
+  };
+
+  ws.onerror = () => ws.close();
 }
 
-connectBtn.addEventListener("click", async () => {
-  connectBtn.disabled = true;
-  connectBtn.textContent = "Connecting…";
-  setupError.style.display = "none";
-  try {
-    const device = await navigator.usb.requestDevice({
-      filters:[{ vendorId: ACR122U.VENDOR_ID, productId: ACR122U.PRODUCT_ID }]
-    });
-    await initReader(device);
-  } catch(e) {
-    connectBtn.disabled = false;
-    connectBtn.textContent = "Connect NFC Reader";
-    setupError.style.display = "block";
-    if (e.name === "NotFoundError")
-      setupError.textContent = "No reader selected. Plug in the ACR122U and try again.";
-    else if (e.name === "SecurityError")
-      setupError.textContent = "USB access blocked. Make sure you're using the Vercel HTTPS URL, not localhost.";
-    else
-      setupError.textContent = "Connection failed: " + e.message;
-  }
-});
-
-// Auto-reconnect if permission was already granted previously
-navigator.usb?.getDevices().then(devices => {
-  const reader = devices.find(d =>
-    d.vendorId === ACR122U.VENDOR_ID && d.productId === ACR122U.PRODUCT_ID
-  );
-  if (reader) {
-    connectBtn.textContent = "Reconnecting…";
-    initReader(reader).catch(()=>{
-      connectBtn.textContent = "Connect NFC Reader";
-      connectBtn.disabled = false;
-    });
-  }
-});
-
-// Handle reader being unplugged
-navigator.usb?.addEventListener("disconnect", e => {
-  if (e.device.vendorId === ACR122U.VENDOR_ID) {
-    ACR122U.stopPolling();
-    setStatus("disconnected","Reader disconnected");
-    setupScreen.classList.remove("hidden");
-    connectBtn.disabled = false;
-    connectBtn.textContent = "Reconnect NFC Reader";
-  }
-});
+connectWS();
 </script>
 </body>
 </html>
